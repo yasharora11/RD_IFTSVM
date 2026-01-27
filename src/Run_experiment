@@ -34,7 +34,7 @@ delta = 1.5
 # ---------------------------------------------------
 # Main experiment
 # ---------------------------------------------------
-X = load_wpbc("../data/WPBC.xlsx")
+X = load_wpbc("../data/WPBC.xlsx") # Specify the relative path to the WPBC dataset
 
 kf = KFold(n_splits=10, shuffle=True, random_state=42)
 
