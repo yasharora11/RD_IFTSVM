@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+from sklearn.metrics import confusion_matrix
 
-import RD-IFTSVM_model as p5
+import RD_IFTSVM_model as p5
 
 
 # ---------------------------------------------------
@@ -22,23 +22,37 @@ def load_wpbc(path):
     ).astype(float)
     return df.astype(float).to_numpy()
 
+def compute_auc_from_cm(y_true, y_pred):
+    """
+    Compute AUC using sensitivity and false positive rate (paper-aligned).
+    """
+    cm = confusion_matrix(y_true, y_pred, labels=[-1, 1])
+
+    tn, fp = cm[0, 0], cm[0, 1]
+    fn, tp = cm[1, 0], cm[1, 1]
+
+    sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+    fpr = 1 - specificity
+
+    auc = (1 + sensitivity - fpr) / 2
+    return auc
 
 # ---------------------------------------------------
 # Hyperparameters (Choose the optimal hyperparameters)
 # ---------------------------------------------------
-C1 = 1.0
-C2 = 1.0
+C1 = 0.01
+C2 = 0.01
 delta = 1.5
-
 
 # ---------------------------------------------------
 # Main experiment
 # ---------------------------------------------------
-X = load_wpbc("../data/WPBC.xlsx") # Specify the relative path to the WPBC dataset
+X = load_wpbc("WPBC.xlsx") # Specify the relative path to the WPBC dataset
 
-kf = KFold(n_splits=10, shuffle=True, random_state=42)
+kf = KFold(n_splits=10, shuffle=True, random_state=10)
 
-acc, f1s = [], []
+auc_scores = []
 
 for train_idx, test_idx in kf.split(X):
     train, test = X[train_idx], X[test_idx]
@@ -48,17 +62,23 @@ for train_idx, test_idx in kf.split(X):
 
     A_te = test[test[:, -1] == 1][:, :-1]
     B_te = test[test[:, -1] == -1][:, :-1]
+    
+    if len(A_te) == 0 or len(B_te) == 0:
+        continue
 
-    scaler = MinMaxScaler()
-    A_tr = scaler.fit_transform(A_tr)
-    B_tr = scaler.fit_transform(B_tr)
-    A_te = scaler.transform(A_te)
-    B_te = scaler.transform(B_te)
-
+    scaler_A = MinMaxScaler()
+    scaler_B = MinMaxScaler()
+    
+    A_tr = scaler_A.fit_transform(A_tr)
+    A_te = scaler_A.transform(A_te)
+    
+    B_tr = scaler_B.fit_transform(B_tr)
+    B_te = scaler_B.transform(B_te)
+    
     uA, uB = p5.calculate_proposed_membership(A_tr, B_tr, delta)
 
-    w1, b1 = p5.fit_positive(A_tr, B_tr, uB, C1, C2)
-    w2, b2 = p5.fit_negative(A_tr, B_tr, uA, C1, C2)
+    w1, b1 = p5.fit1(A_tr, B_tr, uB, C1, C2)
+    w2, b2 = p5.fit2(A_tr, B_tr, uA, C1, C2)
 
     W = np.c_[w1, w2]
     B = np.c_[b1, b2]
@@ -68,12 +88,10 @@ for train_idx, test_idx in kf.split(X):
         p5.predict(B_te, W, B)
     ]
     y_true = np.r_[np.ones(len(A_te)), -np.ones(len(B_te))]
-
-    acc.append(accuracy_score(y_true, y_pred))
-    f1s.append(f1_score(y_true, y_pred))
+    auc = compute_auc_from_cm(y_true, y_pred)
+    auc_scores.append(auc)
 
 print("===================================")
-print("WPBC RESULTS (10-fold CV)")
-print("Accuracy :", np.mean(acc) * 100)
-print("F1-score :", np.mean(f1s) * 100)
+print("RESULTS (10-fold CV)")
+print("AUC :", np.mean(auc_scores) * 100)
 print("===================================")
