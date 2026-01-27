@@ -1,0 +1,79 @@
+"""
+Run RD-IFTSVM on WPBC dataset
+"""
+
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+
+import RD_IFTSVM_model as p5
+
+
+# ---------------------------------------------------
+# Load WPBC dataset
+# ---------------------------------------------------
+def load_wpbc(path):
+    df = pd.read_excel(path, header=None)
+    df = df[0].str.split(',', expand=True)
+    df.iloc[:, -1] = df.iloc[:, -1].replace(
+        {'positive': 1, 'negative': -1}
+    ).astype(float)
+    return df.astype(float).to_numpy()
+
+
+# ---------------------------------------------------
+# Hyperparameters (Choose the optimal hyperparameters)
+# ---------------------------------------------------
+C1 = 1.0
+C2 = 1.0
+delta = 1.5
+
+
+# ---------------------------------------------------
+# Main experiment
+# ---------------------------------------------------
+X = load_wpbc("../data/WPBC.xlsx")
+
+kf = KFold(n_splits=10, shuffle=True, random_state=42)
+
+acc, f1s = [], []
+
+for train_idx, test_idx in kf.split(X):
+    train, test = X[train_idx], X[test_idx]
+
+    A_tr = train[train[:, -1] == 1][:, :-1]
+    B_tr = train[train[:, -1] == -1][:, :-1]
+
+    A_te = test[test[:, -1] == 1][:, :-1]
+    B_te = test[test[:, -1] == -1][:, :-1]
+
+    scaler = MinMaxScaler()
+    A_tr = scaler.fit_transform(A_tr)
+    B_tr = scaler.fit_transform(B_tr)
+    A_te = scaler.transform(A_te)
+    B_te = scaler.transform(B_te)
+
+    uA, uB = p5.calculate_proposed_membership(A_tr, B_tr, delta)
+
+    w1, b1 = p5.fit_positive(A_tr, B_tr, uB, C1, C2)
+    w2, b2 = p5.fit_negative(A_tr, B_tr, uA, C1, C2)
+
+    W = np.c_[w1, w2]
+    B = np.c_[b1, b2]
+
+    y_pred = np.r_[
+        p5.predict(A_te, W, B),
+        p5.predict(B_te, W, B)
+    ]
+    y_true = np.r_[np.ones(len(A_te)), -np.ones(len(B_te))]
+
+    acc.append(accuracy_score(y_true, y_pred))
+    f1s.append(f1_score(y_true, y_pred))
+
+print("===================================")
+print("WPBC RESULTS (10-fold CV)")
+print("Accuracy :", np.mean(acc) * 100)
+print("F1-score :", np.mean(f1s) * 100)
+print("===================================")
